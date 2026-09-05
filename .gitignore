@@ -63,3 +63,6 @@ scripts/**/*.prev*.py
 
 # ── 옛 버전 자산(_prev): 승인본만 남긴다 ───────────────────
 channels/*/assets/intro/_prev/
+
+# ── 썸네일 프롬프트 빌드 산출물 (thumb_prompt.py 로 언제든 재생성) ──
+docs/thumbnail-prompts/_build/
