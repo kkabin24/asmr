@@ -550,12 +550,12 @@ scene_timing.py  →  ★insert_chapter_cards.py  →  capcut_export.py
 
 - 챕터 시각이 편당 3초씩 밀리므로 **meta.txt의 챕터 목록을 갱신**해야 한다.
 
-### VEO_HOOK  ★훅 인트로 립싱크 클립 (엔진에 따라 무료(pjn)/유료(gemini·flow) — **2026-08-27부터 기본 실행**)
+### VEO_HOOK  ★훅 인트로 립싱크 클립 (**무료 `pjn` 전용** — 🚫 gemini 영상 생성 절대 금지, **2026-08-27부터 기본 실행**)
 > **★기본값 = 만든다** (2026-08-27 사용자 지시로 부활). v3.0에서 한 번 폐기됐던 단계다 — 근거는 "수면 채널은 궁금해서 못 끄는 게 아니라 편안해서 안 끄는 것"이었고, 그때는 유료 엔진뿐이라 비용도 걸렸다. 되살린 이유는 둘이다: ①초반 이탈이 실제 문제로 남아 있고 ②pjn 엔진이 무료라 테이크를 얼마든지 뽑을 수 있다. **전제 = 1편 도입 첫 문장에 인물의 직접 대사 한 줄**(script-guide §3-0)과 **그 화자가 씬1에 서 있을 것**. 이 둘이 안 갖춰졌으면 만들지 말고 그냥 넘어간다(스틸 도입).
 
 씬1 이미지를 시작 프레임으로 8초 립싱크 클립(네이티브 오디오 — 대사 포함)을 만든다. **CapCut 드래프트에는 넣지 않는다** — 내보낸 mp4 앞부분을 `attach_hook.py`가 갈아끼운다(아래 ATTACH_HOOK).
 엔진(`settings.json image.veo.engine`): **`pjn`(무료·야담 기본, 2026-08-26)** = 로컬 5090 서버 `api.project-n.work` MiniMax H3 i2v, `.env` `PJN_API_KEY`만 있으면 됨(데몬·Chrome 불필요). 최대 1376×768이라 생성 후 렌더 규격(1920×1080/30fps)으로 자동 재인코딩되고, 첫 프레임이 씬1 스틸에 픽셀 고정돼 컷 연결이 Veo보다 자연스럽다. 화질은 `image.veo.pjn.quality`(0.4/0.6/0.8/1.0) / `gemini`(⚠️유료) = Gemini API `veo-3.1-lite-generate-preview` 1080p/8초, `.env` GEMINI_API_KEY / `flow` = labs.google 웹세션(~20크레딧, `image.veo.flow.ports` 레인 데몬+Chrome 필요).
-**무료 pjn으로 테이크를 여러 개 뽑고, 확정본만 필요하면 `--engine gemini --force`로 재생성한다.**
+**🚫 gemini 엔진은 절대 쓰지 않는다** (2026-09-06 사용자 지시 · CLAUDE.md 「🚫 절대 금지」 절). `GEMINI_API_KEY` 로는 **영상을 만들지 않는다** — 이미지만 허용이다. 테이크도 확정본도 **전부 무료 `pjn`** 으로 뽑고, pjn이 안 되면 **훅을 포기하고 스틸 도입으로 간다.** 「확정본만 `--engine gemini --force` 로 재생성」하던 종전 안내는 **폐기됐다.** 또한 `veo_hook.py` 코드 기본값이 `gemini` 이므로 **`--config channels/{채널}/config/settings.json` 을 반드시 명시**한다.
 ```
 python3 scripts/render/veo_hook.py {P}     --speaker "The OLD MAN on the left in the grey hemp jacket, standing on the porch"     --listener "the young man in undyed hemp"        # 프롬프트 생성 → 클립 생성 → 규격·음량 맞춤
 python3 scripts/render/veo_hook.py {P} --prompt-only  # 무료: 프롬프트·매니페스트 파일만

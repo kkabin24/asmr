@@ -33,7 +33,7 @@
       "engine": "pjn",
       "model": "veo-3.1-lite-generate-preview",
       "resolution": "1080p",
-      "_comment": "훅 인트로 i2v 립싱크 클립(scripts/render/veo_hook.py, ⚠️유료). ★2026-07-28 gemini + Veo 3.1 Lite로 전환 — flow(labs.google)의 Veo 생성은 Google AI Pro/Ultra 구독 기능이라 무료 계정으로는 권한이 없다(밴이 아님). engine=gemini: GEMINI_API_KEY만 있으면 되고 데몬·Chrome 불필요. 단가: Lite 1080p $0.08/s → 8초 $0.64(약 900원) / Fast 1080p $0.15/s → 8초 $1.20(약 1,700원). Lite는 이코노미 등급이라 립싱크 정확도가 Fast보다 떨어질 수 있음 — 입이 안 맞으면 model만 veo-3.1-fast-generate-preview로 올려 --force 재생성. model 필드는 gemini 전용, flow는 아래 flow.model 사용. ★2026-08-26 기본 엔진을 pjn(로컬 5090 서버, 무료)으로 전환 — 훅 테이크는 무료로 여러 개 뽑고 확정본만 --engine gemini로 재생성하는 전략. pjn은 .env의 PJN_API_KEY 필요, MiniMax H3 i2v, 대사 프롬프트는 veo_hook_prompt_pjn.txt로 분리된다.",
+      "_comment": "훅 인트로 i2v 립싱크 클립(scripts/render/veo_hook.py). ★★절대 금지(2026-09-06 사용자 지시 · CLAUDE.md 「절대 금지」 절): GEMINI_API_KEY로 영상을 만들지 않는다 — engine은 pjn(무료) 고정, gemini로 바꾸지 않으며 --engine gemini도 쓰지 않는다. pjn이 안 되면 훅을 포기하고 스틸 도입으로 간다. 아래 model·단가 서술은 이력 보존용이며 실행 근거가 아니다. ★2026-07-28 gemini + Veo 3.1 Lite로 전환 — flow(labs.google)의 Veo 생성은 Google AI Pro/Ultra 구독 기능이라 무료 계정으로는 권한이 없다(밴이 아님). engine=gemini: GEMINI_API_KEY만 있으면 되고 데몬·Chrome 불필요. 단가: Lite 1080p $0.08/s → 8초 $0.64(약 900원) / Fast 1080p $0.15/s → 8초 $1.20(약 1,700원). Lite는 이코노미 등급이라 립싱크 정확도가 Fast보다 떨어질 수 있음 — 입이 안 맞으면 model만 veo-3.1-fast-generate-preview로 올려 --force 재생성. model 필드는 gemini 전용, flow는 아래 flow.model 사용. ★2026-08-26 기본 엔진을 pjn(로컬 5090 서버, 무료)으로 전환 — 훅 테이크는 무료로 여러 개 뽑고 확정본만 --engine gemini로 재생성하는 전략. pjn은 .env의 PJN_API_KEY 필요, MiniMax H3 i2v, 대사 프롬프트는 veo_hook_prompt_pjn.txt로 분리된다.",
       "flow": {
         "ports": [
           3849

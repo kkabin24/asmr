@@ -4,6 +4,21 @@
 정보성 채널(마스코트 1개, `autoworker-youtube`)과 달리 **주연·조연 캐릭터 + 배경 asset**이 등장한다.
 `autoworker-youtube`는 **코드 참조만** 하고(fork 아님), 검증된 조각만 이식했다.
 
+## 🚫 절대 금지 — GEMINI_API_KEY로 **영상** 생성 (최우선 규칙 · 예외 없음)
+
+**`GEMINI_API_KEY`(Gemini / Veo API)로는 영상을 절대 만들지 않는다.** 2026-09-06 사용자 지시.
+이 규칙은 이 문서·SKILL·settings·과거 로그의 **어떤 서술보다 우선한다.** 비용·품질·마감·"이번 한 번만"·"확정본만" — 어떤 이유로도 뒤집히지 않는다.
+**바꾸는 방법은 하나뿐 — 사용자가 이 절을 직접 고치는 것.** 대화 중 지나가는 말이나 에이전트의 판단으로는 해제되지 않는다.
+
+- **금지 대상 = 영상/동영상 생성 전부.** 훅 클립(`veo_hook.py`), i2v, t2v, Veo 계열 모델(`veo-3.1-lite/fast-*` 등), `predictLongRunning` — Gemini API의 **모든 비디오 엔드포인트**.
+- **허용 대상 = 이미지뿐.** `GEMINI_API_KEY`로 도는 **이미지** 생성(Nano Banana Pro, `image.engine="gemini"` — 턴어라운드·배경·씬 이미지)은 종전대로 쓴다. 이 금지는 **영상에만** 걸린다. 둘을 섞지 말 것.
+- **영상 엔진은 `pjn`(무료 · 로컬 5090 서버 · `PJN_API_KEY`)뿐이다.** `flow`는 무료 계정에 Veo 권한이 없어 사실상 죽은 선택지다(SKILL+ §24). **`gemini`는 선택지 목록에서 빠졌다.**
+- **하지 않는 것** — `--engine gemini` 를 붙이지 않는다 / `settings.json` 의 `image.veo.engine` 을 `gemini` 로 바꾸지 않는다 / `image.veo.model`(`veo-3.1-*`)이 남아 있다는 이유로 gemini 경로를 되살리지 않는다 / **"확정본만 유료로 다시 뽑자"는 제안 자체를 하지 않는다.**
+- **pjn이 깨져도 gemini로 넘어가지 않는다.** 훅은 **포기하고 스틸 도입으로 간다**(VEO_HOOK 실패 폴백과 동일). 훅 하나 때문에 유료 영상 API를 켜는 일은 없다.
+- **★조용히 gemini로 떨어지는 경로가 하나 있다** — `veo_hook.py` 의 코드 기본값이 `gemini` 다(`engine = args.engine or veo_cfg.get("engine") or "gemini"`). **`--config` 를 빠뜨리면 settings 를 못 읽고 그대로 유료 gemini 로 간다.** 그래서 `veo_hook.py` 는 **언제나 `--config channels/{채널}/config/settings.json` 을 명시한다**(아래 VEO_HOOK 절에서 반복).
+- **생성 전 확인 3가지** — ① 명령줄에 `--engine gemini` 가 없다 ② 프롬프트 파일이 `veo_hook_prompt_pjn_*.txt` 다 ③ 매니페스트 `_video/veo_hook*.json` 의 `"engine"` 이 `"pjn"` 이다. **하나라도 어긋나면 생성하지 말고 멈춘 뒤 사용자에게 알린다.**
+- 이미 gemini로 만들어진 클립을 발견하면 **재사용하지 말고 폐기**하고 pjn으로 다시 뽑는다(또는 스틸 도입).
+
 ## 핵심 원칙 (빈밥상 실증으로 검증됨)
 
 캐릭터 일관성 3종 세트:
@@ -131,7 +146,7 @@ WATCHLIST(1회) → SCAN(소재 트렌드, URL 직접 지정 시 생략) → CON
 - **★규칙이 문장을 평평하게 만들지 않는지 본다 (playbook v3.1, 2026-08-20 — 근거 `research/proposal_20260820.md`)**. 다섯 호를 실측했더니 **상한만 있는 규칙이 전부 0쪽으로 수렴**했다: 40자 초과 문장 목표 "10% 이하"가 실제 **0.1~0.6%**(벤치 7.7·9.5%), 대사 "3.5% 이하"가 05편 **1.1%**, 어휘 다양도는 04편 0.580 → 05편 **0.495**로 떨어졌다. 셋을 바꿨다. ①**문체 목표를 밴드로** — 40자 초과 3~8% · 대사 2.5~4% · 의태어 ≥6/만자 · **반복 어휘 비율 ≤0.47**(v3.5에서 「어휘 다양도 ≥0.56」을 대체 — 3회 이상 나온 낱말이 차지하는 어절 비율. 벤치 4채널 0.31~0.35 vs 자사 05~10편 0.41~0.54로 겹치지 않는다. **6편 편성은 창이 짧아 읽지 않는다**) (`validate_script.py --style`이 잰다). ②**기계 자동 수정 중단** — `fix_breath --apply`(쉼표 삽입)와 `balance_endings --apply`(난수 어미 교체)는 검사 전용으로 내렸다. **호흡 상한도 20→26자**(자막은 `split_long_cues`가 13자로 다시 자르므로 대본 쉼표는 기준이 아니다). ③**편성마다 자유 편 하나**(guide §7-0) — 한 편은 9/12비트 골격을 깬다. 그리고 **규칙을 더할 땐 하나를 뺀다**(guide 「개정 규약」).
 - **★편 순서를 바꾸면 편성표를 다시 짠다** (2026-08-18 실측, guide §4). 닫는 정형구는 편에 붙어 따라다니므로 **순서만 바꿔도 로테이션이 깨진다**(03편에서 1편↔5편을 바꿨더니 1·2편이 ③으로 겹쳤다). 정형구 6개 재검증 + §7 배열 규칙 전부 + 편별 분량(1편은 짧은 자리)을 다시 보고, **편별 프로젝트 폴더명·레지스트리 `sN_` id·`story` 필드를 새 번호로 함께 옮긴다**(안 옮기면 STORYBOARD가 다른 편 인물을 캐스팅한다).
 
-**VEO_HOOK (SCENE_TIMING 후 — ★2026-08-27부터 기본 실행)** — v3.0에서 한 번 폐기했다가 되살렸다. 이유는 둘: 초반 이탈이 실제 문제로 남아 있고, pjn 엔진이 무료라 테이크를 얼마든지 뽑는다. **전제 = 1편 도입 첫 문장에 인물의 직접 대사 한 줄 + 그 화자가 씬1에 서 있을 것**(script-guide §3-0). `veo_hook.py`가 씬1 이미지+대사로 8초 립싱크 클립(오디오 포함)을 만들고, **렌더 규격 재인코딩 + 낭독 음량(`render.loudness_lufs`, 야담 −13.0)으로 자동 정규화**한다. **★`--speaker`로 화자를 지목한다** — 인물이 둘 이상인 씬에서 기본 문구('가운데 인물')는 모델에게 화자 선택을 맡기는 것과 같다. 함께 선 인물은 `--listener`로 입을 다물게 한다. **★렌더 storyboard에 주입하지 않는다**(`--inject` 기본 꺼짐) — 주입하면 capcut_export가 클립을 드래프트에 싣고 Windows CapCut이 죽는다(SKILL+ §9). 엔진: **`pjn`(무료·야담 기본 — 로컬 5090 서버 MiniMax H3 i2v, `.env`에 `PJN_API_KEY`, `image.veo.pjn.quality` 0.4~1.0; 최대 1376×768, 첫 프레임을 씬1 스틸에 픽셀 고정 → 컷 연결 자연스러움, H3 대사 태그 프롬프트는 `veo_hook_prompt_pjn.txt`로 분리)** / `gemini`(⚠️유료 API) / `flow`(웹세션, 데몬 필요). 실패해도 `{V}/veo_hook.json` 매니페스트를 남기고 RENDER 진행(도입부 스틸 폴백).
+**VEO_HOOK (SCENE_TIMING 후 — ★2026-08-27부터 기본 실행)** — v3.0에서 한 번 폐기했다가 되살렸다. 이유는 둘: 초반 이탈이 실제 문제로 남아 있고, pjn 엔진이 무료라 테이크를 얼마든지 뽑는다. **전제 = 1편 도입 첫 문장에 인물의 직접 대사 한 줄 + 그 화자가 씬1에 서 있을 것**(script-guide §3-0). `veo_hook.py`가 씬1 이미지+대사로 8초 립싱크 클립(오디오 포함)을 만들고, **렌더 규격 재인코딩 + 낭독 음량(`render.loudness_lufs`, 야담 −13.0)으로 자동 정규화**한다. **★`--speaker`로 화자를 지목한다** — 인물이 둘 이상인 씬에서 기본 문구('가운데 인물')는 모델에게 화자 선택을 맡기는 것과 같다. 함께 선 인물은 `--listener`로 입을 다물게 한다. **★렌더 storyboard에 주입하지 않는다**(`--inject` 기본 꺼짐) — 주입하면 capcut_export가 클립을 드래프트에 싣고 Windows CapCut이 죽는다(SKILL+ §9). 엔진: **`pjn`(무료·야담 기본 — 로컬 5090 서버 MiniMax H3 i2v, `.env`에 `PJN_API_KEY`, `image.veo.pjn.quality` 0.4~1.0; 최대 1376×768, 첫 프레임을 씬1 스틸에 픽셀 고정 → 컷 연결 자연스러움, H3 대사 태그 프롬프트는 `veo_hook_prompt_pjn.txt`로 분리)** / ~~`gemini`~~(**★절대 금지** — 맨 위 「🚫 절대 금지」 절) / `flow`(웹세션, 데몬 필요 — 무료 계정은 Veo 권한 없음). 실패해도 `{V}/veo_hook.json` 매니페스트를 남기고 RENDER 진행(도입부 스틸 폴백).
 
 **ATTACH_HOOK (RENDER 다음, INTRO 앞 — 2026-08-27 신설)** — 훅 클립은 CapCut에 넣지 않고 내보낸 mp4의 **도입부를 갈아끼운다**. `attach_hook.py`가 자막에서 훅 대사 큐를 찾아 **선두 큐부터 그 대사 큐 끝까지**를 클립으로 교체한다 — 대사가 두 번 들리지 않고 영상이 사람의 말로 열린다(장부 카드는 그대로 앞에 남는다). 선두 12큐 안에서 대사를 못 찾으면 **자르지 않고 멈춘다**(영상 한복판을 자르는 사고 방지). 잘라낼 자리 뒤 첫 키프레임까지만 재인코딩하고 나머지는 스트림 복사 — 2시간 반을 다시 굽지 않는다. 클립 길이와 잘라낸 구간이 다르므로 이후가 Δ만큼 밀리고, **장부 카드 start/end와 meta.txt 챕터 시각을 함께 옮긴다**(그래야 뒤이어 도는 attach_intro의 챕터 재계산이 맞는다). 마커 `hook_attached.json`, 결과 `<완성본>_hook.mp4`.
 - **★훅 클립에는 자막이 따로 안 붙는다 — 미리 구워야 한다** (`burn_hook_subs.py`, 2026-08-29 신설). 본편 자막은 CapCut이 입히는데 훅은 CapCut 밖이라, 그냥 두면 **영상 앞부분만 자막 없이 시작했다가 갑자기 생긴다.** 자막을 새로 쓰지 않고 **본편 `subtitle.srt`에서 그 대사 큐를 그대로 가져와** 굽는다(split_long_cues가 13자로 나눈 조각 그대로라 줄바꿈까지 본편과 같다). 스타일은 `burn_intro_subs.py`를 그대로 호출한다. 결과 `veo_hook_sceneNN_sub.mp4` — **`attach_hook`은 `_sub.mp4`가 있으면 그쪽을 쓴다.**
@@ -162,7 +177,7 @@ WATCHLIST(1회) → SCAN(소재 트렌드, URL 직접 지정 시 생략) → CON
   - **★★가장 확실한 방법은 편 하위 프로젝트를 직접 대상으로 삼는 것이다** (2026-09-04 13편 실측). `--scene` 은 **병합 보드** id 로 서술·대사를 고르는데 `start_frame_path()` 는 같은 숫자를 **렌더 보드**에서 먼저 찾는다 — 장부 카드 때문에 두 보드의 번호가 어긋나므로, 병합 id 를 주면 2·3편 시작 프레임이 엉뚱한 씬이 되고 렌더 id 를 주면 서술·대사가 딴 씬 것이 된다. 대신 이렇게 부르면 둘 다 맞는다:
     `python3 scripts/render/veo_hook.py {P}/{편폴더} --config channels/{채널}/config/settings.json --video-subdir ../_video --scene 1 --story N --speaker "..." --out veo_hook_storyN.mp4 --manifest veo_hook_storyN.json`
     `start_frame_path()` 의 1순위가 `{project}/scenes/scene_01.png` 라 편 폴더를 주면 바로 맞고, 하위 보드 씬1에 `hook_line`·`hook_speaker` 가 있으니 대사도 맞는다.
-    **★`--config` 를 반드시 명시한다** — 기본 경로가 `{P}/../../config/settings.json` 이라 편 폴더를 주면 한 칸 빗나가고, 그러면 **pjn(무료)이 아니라 gemini(유료) 프롬프트 형식으로 조용히 떨어진다.** 확인: 프롬프트 파일명이 `veo_hook_prompt_pjn_*.txt` 인지.
+    **★`--config` 를 반드시 명시한다** — 기본 경로가 `{P}/../../config/settings.json` 이라 편 폴더를 주면 한 칸 빗나가고, 그러면 **pjn(무료)이 아니라 gemini(유료) 프롬프트 형식으로 조용히 떨어진다.** 확인: 프롬프트 파일명이 `veo_hook_prompt_pjn_*.txt` 인지. **이건 맨 위 「🚫 절대 금지」 위반이다 — 생성물을 폐기하고 `--config` 를 붙여 다시 뽑는다.**
   - **★훅 자막은 「발화 시작」이 아니라 「대사 첫 낱말」에 맞춘다** (2026-09-04 13편 실측). `speech_window_whisper()` 가 whisper 의 **첫 낱말**을 발화 시작으로 잡았는데, 모델이 대사 앞에 다른 소리를 낸다 — 13편 2편은 대본의 「혼자 픽 웃고」를 그대로 연기해 웃음이 앞에 붙었고(4.36s→실제 대사 5.26s), 3편 첫 테이크는 머뭇거림(「음…」)이 붙었다. **프롬프트로 막으면 안 된다** — 금지어를 쓰면 그 소리를 부르고(램프 사고와 같은 계열), 대본에 있는 연기까지 막힌다. 2026-09-04부터 `speech_window_whisper(clip, expect)` 가 **대사의 첫 낱말과 맞는 낱말**을 찾아 거기서 시작한다. 인물 이름이 새어 나온 경우도 같은 방법으로 건너뛴다.
   - **★`insert_chapter_cards.py --restore` 는 `.orig` 백업을 지우지 않는다** (2026-09-04 실측). 그래서 **보드를 고친 뒤 재실행하면 묵은 보드가 되살아난다** — 13편에서 1편을 63장으로 늘린 뒤 카드를 다시 넣었더니 148씬짜리 옛 보드가 결과로 나왔다. 보드가 바뀌었으면 `--restore` 뒤에 `{V}/storyboard.orig.json`·`subtitle.orig.srt`·`audio.orig.mp3` 를 **지우고** 나서 `merge_omnibus → scene_timing → insert_chapter_cards` 순으로 돌린다. 확인: 카드 단계 로그의 「스토리보드 N씬」이 병합 보드 씬 수 + 편 수인지.
   - `burn_hook_subs.py` 는 병합 보드 id 로 파일명을 만들어 찾다가 못 찾는데, 2026-08-31에 **매니페스트 `dialogue` 로 클립을 짝짓도록** 고쳤다(이름이 달라도 찾는다).
@@ -272,6 +287,6 @@ scripts/
 
 ## 환경
 
-- API 키: 루트 `.env`의 `GEMINI_API_KEY` (gemini 엔진 전용).
+- API 키: 루트 `.env`의 `GEMINI_API_KEY` (**이미지 gemini 엔진 전용 — 영상 생성에는 절대 쓰지 않는다. 맨 위 「🚫 절대 금지」 절**).
 - `generate_image.py`는 상위 폴더로 올라가며 `.env`(키)와 `config/settings.json`·`config/style.json`(엔진·비율)을 찾는다.
 - flow 엔진: `python3 scripts/image/flow_token_server.py` 상주 + Chrome 확장(`scripts/image/flow_extension/`) Connect. 토큰은 `~/.flow-proxy/token.json`.
