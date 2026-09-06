@@ -3,7 +3,10 @@
  * Connects Google Flow to CLI scripts for image generation
  */
 
-const FLOW_URL = 'https://labs.google/fx/tools/flow';
+const FLOW_URL = 'https://flow.google.com/';
+// ★2026-09-06: Flow 가 flow.google.com 으로 이전. 탭 조회는 두 도메인을 모두 본다.
+const FLOW_TAB_URLS = ['https://flow.google.com/*', 'https://labs.google/*'];
+const isFlowTab = (u) => !!u && (u.includes('flow.google.com') || u.includes('labs.google'));
 const AUTH_SESSION_URL = 'https://labs.google/fx/api/auth/session';
 const SESSION_COOKIE_NAME = '__Secure-next-auth.session-token';
 
@@ -143,15 +146,15 @@ async function handleConnect() {
     if (!accessToken) {
       // 폴백: 탭 컨텍스트에서 뽑기 (쿠키 파티셔닝 등으로 팝업 fetch 가 막힌 경우)
       let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab || !tab.url || !tab.url.includes('labs.google')) {
-        const found = await chrome.tabs.query({ url: 'https://labs.google/*' });
+      if (!tab || !isFlowTab(tab.url)) {
+        const found = await chrome.tabs.query({ url: FLOW_TAB_URLS });
         tab = found[0] || null;
       }
       if (tab) accessToken = await getTokenFromTab(tab.id);
     }
 
     if (!accessToken) {
-      const n = (await chrome.tabs.query({ url: 'https://labs.google/*' })).length;
+      const n = (await chrome.tabs.query({ url: FLOW_TAB_URLS })).length;
       throw new Error(
         `로그인 세션을 못 읽었습니다 (이 프로필에서 보이는 labs.google 탭 ${n}개). ` +
         `Flow 를 이 프로필 창에서 열고 구글 로그인 후 다시 시도하세요.`

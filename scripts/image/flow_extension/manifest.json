@@ -3,8 +3,19 @@
   "name": "Flow Proxy Auth",
   "version": "2.0.0",
   "description": "Connect Google Flow AI to Claude Code for image generation",
-  "permissions": ["activeTab", "scripting", "cookies", "tabs", "alarms", "storage"],
-  "host_permissions": ["https://labs.google/*", "http://localhost/*"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "cookies",
+    "tabs",
+    "alarms",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://labs.google/*",
+    "https://flow.google.com/*",
+    "http://localhost/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },

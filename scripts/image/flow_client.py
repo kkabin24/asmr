@@ -19,6 +19,8 @@ import argparse
 import base64
 import hashlib
 import json
+import os
+import ssl
 import pathlib
 import re
 import sys
@@ -52,12 +54,38 @@ class FlowError(RuntimeError):
     pass
 
 
+def _ssl_context() -> "ssl.SSLContext | None":
+    """Windows 인증서 저장소를 우회한 TLS 컨텍스트.
+
+    ★2026-09-06 이식 — generate_image.py 에만 있던 우회가 flow 경로엔 없어서
+    flow 생성이 `[ASN1: NOT_ENOUGH_DATA] not enough data` 로 전량 실패했다.
+    Windows 저장소에 ASN1 이 깨진 항목이 하나라도 있으면
+    ssl.create_default_context() 가 _load_windows_store_certs 에서 죽는다.
+    certifi 번들을 cafile 로 직접 주면 저장소를 아예 안 읽는다.
+    """
+    cafile = os.environ.get("SSL_CERT_FILE")
+    if not cafile:
+        try:
+            import certifi
+            cafile = certifi.where()
+        except Exception:
+            return None
+    try:
+        return ssl.create_default_context(cafile=cafile)
+    except Exception:
+        return None
+
+
+_SSL = _ssl_context()
+
+
+
 def _post(url: str, payload: dict, token: str | None = None, timeout: int = 600) -> dict:
     headers = {"Content-Type": "application/json", "Origin": "https://labs.google"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(req, timeout=timeout, context=_SSL) as resp:
         return json.loads(resp.read())
 
 
@@ -241,7 +269,7 @@ def extract_images(data: dict) -> list[dict]:
 
 def _download(item: dict, timeout: int = 120) -> bytes:
     if item["type"] == "url":
-        with urllib.request.urlopen(item["url"], timeout=timeout) as resp:
+        with urllib.request.urlopen(item["url"], timeout=timeout, context=_SSL) as resp:
             return resp.read()
     return base64.b64decode(item["data"])
 

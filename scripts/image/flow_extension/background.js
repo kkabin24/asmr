@@ -26,14 +26,18 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.flowPort) FLOW_PORT = changes.flowPort.newValue || 3847;
 });
 
+// ★2026-09-06: Flow 가 flow.google.com 으로 이전했다. labs.google 만 보면
+// 탭이 열려 있어도 0개로 나와 reCAPTCHA 를 못 돌린다. 두 도메인을 모두 본다.
+const FLOW_TAB_URLS = ['https://flow.google.com/*', 'https://labs.google/*'];
+
 async function flowTabId() {
-  const tabs = await chrome.tabs.query({ url: 'https://labs.google/*' });
+  const tabs = await chrome.tabs.query({ url: FLOW_TAB_URLS });
   return tabs.length ? tabs[0].id : null;
 }
 
 async function runRecaptcha(action) {
   const tabId = await flowTabId();
-  if (tabId == null) return { error: 'labs.google/flow 탭이 열려 있지 않음' };
+  if (tabId == null) return { error: 'Flow 탭이 열려 있지 않음 (flow.google.com 또는 labs.google)' };
   try {
     const [res] = await chrome.scripting.executeScript({
       target: { tabId },
