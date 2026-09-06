@@ -132,28 +132,46 @@ async function handleConnect() {
   } catch {}
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    // ★2026-09-06 재수정 — 탭 의존을 없앤다.
+    // 종전 경로는 labs.google 탭을 찾아 그 안에서 세션을 fetch 했는데,
+    // chrome.tabs.query 는 **같은 프로필의 탭만** 본다. 다른 프로필/창(또는 시크릿)에
+    // Flow 를 띄워두면 탭이 눈앞에 있어도 0개로 나와 Connect 가 막혔다.
+    // 그런데 팝업 자신이 host_permissions(https://labs.google/*) + 쿠키로
+    // 세션을 직접 가져올 수 있다(init() 의 OAuth ✓ 가 그 증거다). 그걸 1순위로 쓴다.
+    let accessToken = await checkSessionStatus();
 
-    if (!tab) throw new Error('No active tab found');
-
-    if (!tab.url || !tab.url.includes('labs.google')) {
-      throw new Error('Open labs.google/fx/tools/flow first');
+    if (!accessToken) {
+      // 폴백: 탭 컨텍스트에서 뽑기 (쿠키 파티셔닝 등으로 팝업 fetch 가 막힌 경우)
+      let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || !tab.url || !tab.url.includes('labs.google')) {
+        const found = await chrome.tabs.query({ url: 'https://labs.google/*' });
+        tab = found[0] || null;
+      }
+      if (tab) accessToken = await getTokenFromTab(tab.id);
     }
 
-    // Get access token from page context
-    const accessToken = await getTokenFromTab(tab.id);
     if (!accessToken) {
-      throw new Error('Not logged in. Sign into Google on the Flow page first.');
+      const n = (await chrome.tabs.query({ url: 'https://labs.google/*' })).length;
+      throw new Error(
+        `로그인 세션을 못 읽었습니다 (이 프로필에서 보이는 labs.google 탭 ${n}개). ` +
+        `Flow 를 이 프로필 창에서 열고 구글 로그인 후 다시 시도하세요.`
+      );
     }
 
     // Get session cookie for auto-refresh
     const sessionCookie = await getSessionCookie();
 
     // Send to local proxy server (must be running via generate.mjs)
+    // ★2026-09-06 수정: 종전에는 모든 실패를 'CLI server not running' 으로 뭉갰다.
+    // 데몬이 400(invalid access token) 을 돌려줘도 같은 문구가 떠서 원인을 못 봤다.
     try {
       await sendAuthToProxy(accessToken, sessionCookie);
-    } catch {
-      throw new Error('CLI server not running. Run generate.mjs first, then click Connect.');
+    } catch (e) {
+      const msg = (e && e.message) || String(e);
+      if (/Failed to fetch|NetworkError|load failed/i.test(msg)) {
+        throw new Error(`데몬(포트 ${FLOW_PORT})에 연결 실패 — flow_token_server.py 가 떠 있는지 확인`);
+      }
+      throw new Error(`데몬이 거절: ${msg}`);
     }
 
     updateStatus(true, 'Connected');

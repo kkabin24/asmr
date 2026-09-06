@@ -66,3 +66,6 @@ channels/*/assets/intro/_prev/
 
 # ── 썸네일 프롬프트 빌드 산출물 (thumb_prompt.py 로 언제든 재생성) ──
 docs/thumbnail-prompts/_build/
+
+# ── 썸네일 이미지 산출물 (재생성 가능) ──
+_thumbs/

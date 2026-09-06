@@ -162,6 +162,18 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # 조용히
         pass
 
+    # ★2026-09-06 신설 — 진단용 요청 기록.
+    # 종전에는 /auth 가 400 으로 거절돼도 아무 흔적이 안 남아,
+    # "확장이 안 보낸 것"과 "보냈는데 거절된 것"을 구분할 수 없었다.
+    # 폴링(/need-recaptcha, /wait-recaptcha)은 초당 여러 건이라 제외한다.
+    _QUIET = ("/need-recaptcha", "/wait-recaptcha")
+
+    def _rlog(self, extra: str = ""):
+        if self.path in self._QUIET:
+            return
+        origin = self.headers.get("Origin", "-")
+        dlog(f"[req] {self.command} {self.path}  origin={origin} {extra}".rstrip())
+
     def _cors(self):
         # PNA: 공개 사이트(labs.google) → loopback(localhost) 요청 허가.
         # Origin 을 그대로 echo(=* 대신) + Allow-Private-Network 로 loopback 접근 승인.
@@ -193,12 +205,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         # PNA 프리플라이트: Access-Control-Request-Private-Network: true 에 응답
+        self._rlog("(CORS/PNA 프리플라이트)")
         self.send_response(204)
         self._cors()
         self.send_header("Content-Length", "0")
         self.end_headers()
 
     def do_GET(self):
+        self._rlog()
         if self.path == "/status":
             tok, note = get_valid_token()
             self._send(200, {"connected": bool(tok), "message": note, "busy": _busy})
@@ -245,11 +259,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         global _result
+        self._rlog()
         if self.path == "/auth":
             # 확장이 로그인 토큰+쿠키를 넘김
             body = self._read_json()
             tok = body.get("accessToken", "")
+            dlog(f"[auth] 수신: 토큰 접두={tok[:4]!r} 길이={len(tok)} "
+                 f"쿠키={'있음' if body.get('sessionCookie') else '없음'}")
             if not tok.startswith("ya29"):
+                dlog("[auth] 거절 — ya29 로 시작하지 않음")
                 self._send(400, {"error": "invalid access token"})
                 return
             save_token({
@@ -258,6 +276,7 @@ class Handler(BaseHTTPRequestHandler):
                 "expiresAt": now_ms() + 3_600_000,
                 "projectId": read_token().get("projectId") or body.get("projectId"),
             })
+            dlog("[auth] ✓ 저장 완료 — Connected")
             self._send(200, {"ok": True, "message": "Connected"})
         elif self.path == "/recaptcha-token":
             # 확장이 실행한 reCAPTCHA 결과
