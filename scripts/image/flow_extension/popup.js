@@ -156,6 +156,14 @@ async function handleConnect() {
 
   try {
     // ★2026-09-18 1순위: 구글 쿠키(SAPISID) 인증 — 새 Flow 는 이것만 받는다.
+    // 언패킹 확장은 매니페스트에 host 권한을 더해도 Chrome 이 조용히 보류하는 경우가 있다(실측: granted 에 없음).
+    // 클릭(사용자 제스처) 시점에 명시적으로 요청하면 승인 창이 뜬다.
+    const GOOGLE_ORIGINS = ['https://*.google.com/*', 'https://google.com/*'];
+    let hasGoogle = await chrome.permissions.contains({ origins: GOOGLE_ORIGINS }).catch(() => false);
+    if (!hasGoogle) {
+      hasGoogle = await chrome.permissions.request({ origins: GOOGLE_ORIGINS }).catch(() => false);
+      if (!hasGoogle) throw new Error('google.com 쿠키 접근 권한이 거부됨 — Connect 를 다시 누르고 "허용"을 선택하세요');
+    }
     const bundle = await getGoogleCookieBundle();
     if (bundle.sapisid) {
       const portOk = await fetch(`${proxyUrl()}/auth`, {
@@ -244,7 +252,15 @@ async function init() {
   }
   // ★2026-09-18: 이 표시는 "구글 로그인 감지" 이지 데몬 연결 상태가 아니다. 연결은 Connect 를 눌러야 한다.
   let bundle = { sapisid: null, count: 0 };
-  try { bundle = await getGoogleCookieBundle(); } catch {}
+  let cookieErr = '';
+  try { bundle = await getGoogleCookieBundle(); } catch (e) { cookieErr = String((e && e.message) || e); }
+  // 진단: 데몬 로그에 어떤 빌드가 떠 있고 쿠키를 몇 개 읽었는지 남긴다 (값은 보내지 않음)
+  try {
+    const perms = await chrome.permissions.getAll();
+    fetch(`${proxyUrl()}/diag`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ build: '3.0.1', sapisidFound: !!bundle.sapisid, cookieCount: bundle.count,
+                             cookieErr, origins: perms.origins || [] }) }).catch(() => {});
+  } catch {}
   if (bundle.sapisid) {
     updateStatus(false, `구글 로그인 감지 (쿠키 ${bundle.count}개) — Connect 를 누르세요`);
     infoEl.textContent = '새 Flow(flow.google.com)는 구글 쿠키로 인증합니다.';

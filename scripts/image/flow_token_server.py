@@ -345,6 +345,11 @@ class Handler(BaseHTTPRequestHandler):
             })
             dlog("[auth] ✓ 저장 완료 — Connected")
             self._send(200, {"ok": True, "message": "Connected"})
+        elif self.path == "/diag":
+            body = self._read_json()
+            dlog(f"[diag] 팝업 build={body.get('build')} SAPISID={'있음' if body.get('sapisidFound') else '없음'} "
+                 f"쿠키={body.get('cookieCount')} err={body.get('cookieErr') or '-'} origins={body.get('origins')}")
+            self._send(200, {"ok": True})
         elif self.path == "/recaptcha-token":
             # 확장이 실행한 reCAPTCHA 결과
             body = self._read_json()
