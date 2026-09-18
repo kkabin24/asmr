@@ -123,6 +123,64 @@ def _post(url: str, payload: dict, token=None, timeout: int = 600) -> dict:
         return json.loads(resp.read())
 
 
+
+# ── 계정 보호: 전 프로세스 공용 최소 요청 간격 ──────────────────────────────
+# ★2026-09-18 신설. SKILL+ §4 가 "코드에 내장" 이라 적었던 _global_stagger/_lane_cooldown 은
+#   어느 사본에도 실제로 존재하지 않았다(실측). FLOW_STAGGER_SEC 등은 아무 효과가 없었다.
+#   여기서는 ~/.flow-proxy/last_request.json 을 파일락으로 공유해, 배치든 수동 호출이든
+#   어떤 두 생성 요청도 FLOW_MIN_INTERVAL_SEC(기본 180초) 안에는 나가지 못하게 한다.
+#   사용자 규칙: "3분에 하나. 안 지키면 밴". 이 가드가 그 규칙의 코드 형태다.
+_FP_DIR = pathlib.Path.home() / ".flow-proxy"
+_LAST_REQ = _FP_DIR / "last_request.json"
+_LOCK_DIR = _FP_DIR / "interval.lock"
+
+
+def _interval_lock(timeout: float = 30.0):
+    """os.mkdir 원자성을 이용한 이식 가능한 파일락(컨텍스트 매니저)."""
+    class _L:
+        def __enter__(self):
+            _FP_DIR.mkdir(parents=True, exist_ok=True)
+            deadline = time.time() + timeout
+            while True:
+                try:
+                    os.mkdir(_LOCK_DIR); return self
+                except FileExistsError:
+                    # 죽은 프로세스가 남긴 락이면 회수(2분 이상 묵은 것)
+                    try:
+                        if time.time() - _LOCK_DIR.stat().st_mtime > 120:
+                            os.rmdir(_LOCK_DIR); continue
+                    except OSError:
+                        pass
+                    if time.time() > deadline:
+                        return self          # 락을 못 잡아도 진행(가드가 배치를 죽여선 안 된다)
+                    time.sleep(0.5)
+        def __exit__(self, *a):
+            try: os.rmdir(_LOCK_DIR)
+            except OSError: pass
+    return _L()
+
+
+def wait_min_interval(label: str = "생성") -> None:
+    """직전 요청으로부터 최소 간격이 지날 때까지 기다린 뒤, 지금 시각을 기록한다."""
+    try:
+        min_s = float(os.environ.get("FLOW_MIN_INTERVAL_SEC", "180"))
+    except ValueError:
+        min_s = 180.0
+    if min_s <= 0:
+        return
+    with _interval_lock():
+        last = 0.0
+        try:
+            last = float(json.loads(_LAST_REQ.read_text()).get("ts", 0))
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        wait = last + min_s - time.time()
+        if wait > 0:
+            print(f"[간격 가드] 직전 {label} 요청 후 {min_s:.0f}초 미만 — {wait:.0f}초 대기 (계정 보호)", file=sys.stderr, flush=True)
+            time.sleep(wait)
+        _LAST_REQ.write_text(json.dumps({"ts": time.time(), "label": label}))
+
+
 def daemon_token(port: int) -> tuple[str, str | None]:
     """데몬에서 access token + projectId 획득."""
     try:
@@ -485,6 +543,7 @@ def _run_on_port(prompt: str, out_path: pathlib.Path, refs: list[pathlib.Path],
     want_upscale = str(upscale or "").upper()
     for attempt in range(1, max_retries + 1):
         try:
+            wait_min_interval("이미지 생성")
             try:
                 recaptcha = daemon_recaptcha(port)
             except FlowError as rc_err:

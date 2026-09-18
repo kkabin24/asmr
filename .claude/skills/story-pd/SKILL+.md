@@ -107,10 +107,22 @@ python scripts/tts/split_long_cues.py {P} --config {CFG} --no-whisper --apply
 
 **원인:** 같은 IP에서 여러 버너 계정(레인)이 **동시에** 요청을 쏘거나(병렬 concurrency↑), 한 계정이 **텀 없이 연속** 발사할 때. 실측: concurrency 3 병렬 → 걸림 / concurrency 1 직렬 재시도 → 통과.
 
+**⚠️ 2026-09-18 정정 — 아래 「종전 서술」의 `_global_stagger` / `_lane_cooldown` / `FLOW_STAGGER_SEC` / `FLOW_LANE_COOLDOWN_SEC` 는 어느 사본의 `flow_client.py` 에도 실제로 존재하지 않았다(실측). 그 env 를 넘겨도 아무 효과가 없었고, 계정을 지키는 건 배치 스크립트의 sleep 뿐이었다.**
+
+**현행 조치 (코드에 내장됨, `flow_client.py` `wait_min_interval`):**
+- **전 프로세스 공용 최소 간격** — `~/.flow-proxy/last_request.json` 을 파일락으로 공유해, 배치든 손으로 돌린 호출이든 **어떤 두 생성 요청도 `FLOW_MIN_INTERVAL_SEC`(기본 **180초**) 안에는 나가지 못한다.** 부족하면 그만큼 자고 나서 보낸다. 생성 이벤트(reCAPTCHA + 생성 호출) 직전에 걸린다.
+- 사용자 규칙 **"3분에 하나. 안 지키면 밴"** 의 코드 형태다. `thumb_batch.py` 는 자기 `--interval` 을 이 env 에도 넣어 이중 안전으로 돈다.
+- `=0` 이면 비활성. 야담처럼 더 빠르게 돌리려면 env 로 낮추되, §4-1 실측(동시성 3·6초 스태거로 65씬 UNUSUAL)을 기억할 것.
+
+<details><summary>종전 서술 (폐기 — 이력 보존)</summary>
+
 **조치 (코드에 내장됨, `flow_client.py`):** 두 겹 스로틀이 `run()`에 배선돼 있고 env로 조절/비활성한다.
 - **레인간 시차** `_global_stagger` — 전 계정 공용 파일락(`~/.flow-proxy/stagger.lock` + `last_request.json`)으로 어떤 두 요청도 최소 간격 이상 벌린다. 프로세스가 계정마다 따로 뜨므로(subprocess) 파일 기반 조율. → `FLOW_STAGGER_SEC` (기본 6초, 지터 +0~40%). **"동시에 여러 계정에 안 나가게".**
 - **레인내 쿨다운** `_lane_cooldown` — 한 계정이 이미지 하나를 끝낸 뒤 레인을 반납하기 **전에** 텀(레인이 busy로 잡혀있는 동안 sleep → 같은 계정 즉시 재점유·연속발사 차단). → `FLOW_LANE_COOLDOWN_SEC` (기본 12초, 지터 +0~40%). **"계정 안에서도 완료 후 인위적 텀".**
 - 둘 다 **지터**로 기계적 패턴을 흩뜨린다. `=0` 이면 해당 스로틀 비활성.
+
+
+</details>
 
 **★UNUSUAL_ACTIVITY 가 뜨면 — 즉시 전체 중단한다 (2026-09-06 사용자 지시 · 예외 없음)**
 

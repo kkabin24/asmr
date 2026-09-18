@@ -5,7 +5,7 @@ SKILL+ §4「flow 어뷰징 방지」를 따른다:
   - 단일 레인·직렬(동시성 1) — 동시 발사 가능성 자체를 0으로
   - 장당 긴 인위적 텀(기본 180초) — §4-1 실측에서 동시성 3 + 스태거 6초로도
     297씬 중 65씬이 UNUSUAL_ACTIVITY에 걸렸다. 코드 기본값(~18초)은 이 배치엔 과하다.
-  - 내장 스로틀도 §4 권장 보수치로 올려 이중 안전(FLOW_STAGGER_SEC/FLOW_LANE_COOLDOWN_SEC)
+  - 클라이언트의 전 프로세스 공용 간격 가드(FLOW_MIN_INTERVAL_SEC)와 이중 안전
 
 사용법:
     python scripts/image/thumb_batch.py --channel sleep [--interval 180] [--port 3850]
@@ -72,8 +72,9 @@ def main():
 
     env = dict(os.environ)
     env["FLOW_PORTS"] = port
-    env.setdefault("FLOW_STAGGER_SEC", "10")        # §4 권장 보수치
-    env.setdefault("FLOW_LANE_COOLDOWN_SEC", "20")
+    # ★클라이언트의 전 프로세스 공용 간격 가드(FLOW_MIN_INTERVAL_SEC)를 배치 간격과 맞춘다.
+    #   배치의 sleep 과 이중 안전 — 배치 밖에서 손으로 돌린 호출과의 간격까지 막아 준다.
+    env["FLOW_MIN_INTERVAL_SEC"] = str(int(interval_arg := args.interval))
 
     interval = args.interval
     todo = [p for p in prompts if args.force or not (out_dir / f"{p.stem}.png").exists()]
