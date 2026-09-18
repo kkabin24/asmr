@@ -73,3 +73,6 @@ channels/*/projects/_images/
 # ── sleep 채널 백색소음 음원 (사용자 보유분, 용량) ──
 channels/sleep/assets/noise/*
 !channels/sleep/assets/noise/README.md
+
+# ── 폐기된 회화 썸네일 산출물 자리 (2026-09-18) ──
+_thumbs/
