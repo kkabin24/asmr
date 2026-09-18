@@ -101,6 +101,30 @@ async function getTokenFromTab(tabId) {
  * 이 프로필의 google.com 쿠키를 모아 데몬에 넘기면, 클라이언트가 요청마다 해시를 계산한다.
  * 구글 로그인 쿠키 전체가 로컬 데몬(~/.flow-proxy)에 저장된다 — 본인 PC·버너 계정 전제.
  */
+/**
+ * ★2026-09-18 새 Flow 의 페이지 토큰 — 로그인된 flow.google.com 탭의 WIZ_global_data 에서
+ * at(SNlM0e, XSRF) / f.sid(FdrFJe) / bl(cfb2h) 를 읽는다. batchexecute 호출에 셋 다 필요하다.
+ */
+async function getWizFromFlowTab() {
+  const tabs = await chrome.tabs.query({ url: 'https://flow.google.com/*' });
+  if (!tabs.length) return { error: 'flow.google.com 탭이 열려 있지 않음 — Open Flow 로 열고 로그인 후 다시 Connect' };
+  try {
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId: tabs[0].id },
+      world: 'MAIN',
+      func: () => {
+        const w = (window.WIZ_global_data || {});
+        return { at: w.SNlM0e || null, fsid: w.FdrFJe || null, bl: w.cfb2h || null };
+      },
+    });
+    const wiz = (res && res.result) || {};
+    if (!wiz.at) return { error: 'Flow 탭에서 로그인 토큰(at)을 못 읽음 — 그 탭에서 구글 로그인 상태인지 확인 후 새로고침' };
+    return { wiz };
+  } catch (e) {
+    return { error: 'Flow 탭 접근 실패: ' + String((e && e.message) || e) };
+  }
+}
+
 async function getGoogleCookieBundle() {
   const all = await chrome.cookies.getAll({ domain: 'google.com' });
   const byName = {};
@@ -166,17 +190,19 @@ async function handleConnect() {
     }
     const bundle = await getGoogleCookieBundle();
     if (bundle.sapisid) {
+      const w = await getWizFromFlowTab();
+      if (w.error) throw new Error(w.error);
       const portOk = await fetch(`${proxyUrl()}/auth`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ authMode: 'sapisid', sapisid: bundle.sapisid, cookies: bundle.cookies, authuser: 0 })
+        body: JSON.stringify({ authMode: 'sapisid', sapisid: bundle.sapisid, cookies: bundle.cookies, authuser: 0, wiz: w.wiz })
       }).then(async r => {
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(`데몬이 거절: ${d.error || r.status}`);
         return d;
       }, e => { throw new Error(`데몬(포트 ${FLOW_PORT})에 연결 실패 — flow_token_server.py 가 떠 있는지 확인 (${e.message})`); });
       updateStatus(true, 'Connected');
-      infoEl.textContent = `구글 쿠키 인증 (SAPISID · 쿠키 ${bundle.count}개). reCAPTCHA: auto`;
+      infoEl.textContent = `구글 쿠키 + 페이지 토큰(at) 확보 · 쿠키 ${bundle.count}개 · reCAPTCHA: auto`;
       connectBtn.textContent = 'Reconnect';
       return;
     }
@@ -258,7 +284,7 @@ async function init() {
   try {
     const perms = await chrome.permissions.getAll();
     fetch(`${proxyUrl()}/diag`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ build: '3.0.1', sapisidFound: !!bundle.sapisid, cookieCount: bundle.count,
+      body: JSON.stringify({ build: '3.1.0', sapisidFound: !!bundle.sapisid, cookieCount: bundle.count,
                              cookieErr, origins: perms.origins || [] }) }).catch(() => {});
   } catch {}
   if (bundle.sapisid) {

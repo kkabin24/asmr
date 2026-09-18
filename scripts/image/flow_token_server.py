@@ -286,6 +286,7 @@ class Handler(BaseHTTPRequestHandler):
             data = read_token()
             if tok == "sapisid":
                 self._send(200, {"authMode": "sapisid", "sapisid": data["sapisid"], "cookies": data["cookies"],
+                                 "wiz": data.get("wiz") or {},
                                  "authuser": data.get("authuser", "0"), "projectId": data.get("projectId"),
                                  "note": note})
                 return
@@ -314,10 +315,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not sap or n_cookies < 3:
                     self._send(400, {"error": "google.com 쿠키(SAPISID)를 못 읽음 — 이 프로필에서 구글에 로그인돼 있는지, 확장에 google.com 권한이 있는지 확인"})
                     return
+                wiz = body.get("wiz") or {}
+                dlog(f"[auth] 페이지 토큰: at={'있음' if wiz.get('at') else '없음'} fsid={'있음' if wiz.get('fsid') else '없음'} bl={wiz.get('bl') or '없음'}")
                 save_token({
                     "authMode": "sapisid",
                     "sapisid": sap,
                     "cookies": cookies,
+                    "wiz": wiz,
                     "authuser": str(body.get("authuser", 0)),
                     "savedAt": now_ms(),
                     "projectId": read_token().get("projectId") or body.get("projectId"),

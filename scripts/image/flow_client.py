@@ -26,6 +26,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ENDPOINT_BASE = "https://aisandbox-pa.googleapis.com/v1"
@@ -226,8 +227,12 @@ def upload_ref(path: pathlib.Path, token: str, project_id: str, port: int, use_c
     return media_id
 
 
-def batch_generate(prompt: str, image_inputs: list[dict], token: str, project_id: str,
+def batch_generate(prompt: str, image_inputs: list[dict], token, project_id: str,
                    recaptcha: str, model: str, ratio: str, seed: int | None) -> list[dict]:
+    if isinstance(token, dict) and token.get("wiz"):
+        if image_inputs:
+            print("주의: 새 Flow(boq) 경로에서 참조 이미지는 아직 미지원 — 무시하고 진행", file=sys.stderr)
+        return _batch_generate_boq(prompt, token, project_id, recaptcha, model, ratio, seed)
     client_ctx = {
         "projectId": project_id,
         "tool": "PINHOLE",
@@ -251,6 +256,99 @@ def batch_generate(prompt: str, image_inputs: list[dict], token: str, project_id
     data = _post(f"{ENDPOINT_BASE}/projects/{project_id}/flowMedia:batchGenerateImages",
                  payload, token=token, timeout=600)
     return extract_images(data)
+
+
+
+# ── 새 Flow(flow.google.com, boq 앱) batchexecute 경로 ─────────────────────────
+# ★2026-09-18 실측(브라우저 캡처): 새 앱은 aisandbox-pa 를 직접 부르지 않는다.
+#   POST https://flow.google.com/_/AiSandboxAngularFrontend/data/batchexecute
+#        ?rpcids=ogiZ0b&source-path=/project/{pid}&bl={cfb2h}&f.sid={FdrFJe}&hl=ko&_reqid=N&rt=c
+#   body: f.req=[[["ogiZ0b","<args json>",null,"generic"]]]&at={SNlM0e}
+#   인증 = 같은 사이트 쿠키 + at(XSRF). Authorization 헤더 없음. reCAPTCHA 토큰은 args 안에 들어간다.
+#   옛 JSON API 의 필드가 그대로 protobuf 배열 자리로 옮겨졌다(아래 주석의 인덱스는 캡처 기준).
+BOQ_ENDPOINT = "https://flow.google.com/_/AiSandboxAngularFrontend/data/batchexecute"
+BOQ_RPC_GENERATE = "ogiZ0b"
+BOQ_TOOL_PINHOLE = 22
+BOQ_ASPECT = {"16:9": 3, "9:16": 2, "1:1": 1}     # 3=LANDSCAPE 는 캡처로 확인(1376x768). 나머지는 추정.
+
+
+def _boq_client_ctx(project_id: str, recaptcha: str | None) -> list:
+    ctx = [None, BOQ_TOOL_PINHOLE, None, None, None, project_id, None, None, None, None, None]
+    if recaptcha:
+        ctx[10] = [recaptcha, 1]          # [토큰, applicationType WEB]
+    return ctx
+
+
+def _batch_generate_boq(prompt: str, auth: dict, project_id: str, recaptcha: str | None,
+                        model: str, ratio: str, seed: int | None) -> list[dict]:
+    wiz = auth.get("wiz") or {}
+    for k in ("at", "fsid", "bl"):
+        if not wiz.get(k):
+            raise FlowError(f"페이지 토큰({k}) 없음 — Flow 탭을 열어둔 채 확장에서 Reconnect")
+    ctx = _boq_client_ctx(project_id, recaptcha)
+    req = [None, None, None,
+           seed if seed is not None else _rand_seed(),   # [3] seed
+           BOQ_ASPECT.get(ratio, 3),                      # [4] aspect
+           MODELS.get(model, "NARWHAL"),                  # [5] model
+           None,
+           ctx,                                           # [7] clientContext
+           [[[prompt]]],                                  # [8] structuredPrompt.parts[].text
+           None, None, None,
+           _uuid4().upper(),                              # [12] batchId
+           _uuid4().upper()]                              # [13] requestId
+    args = [None, [req], 1, ctx, [_uuid4().upper()]]      # outer: [_, requests, 1, clientContext, [sessionId]]
+    freq = json.dumps([[[BOQ_RPC_GENERATE, json.dumps(args, ensure_ascii=False, separators=(",", ":")), None, "generic"]]],
+                      ensure_ascii=False, separators=(",", ":"))
+    qs = urllib.parse.urlencode({
+        "rpcids": BOQ_RPC_GENERATE, "source-path": f"/project/{project_id}",
+        "bl": wiz["bl"], "f.sid": wiz["fsid"], "hl": "ko",
+        "_reqid": str(_rand_seed() % 900000 + 100000), "rt": "c",
+    })
+    body = urllib.parse.urlencode({"f.req": freq, "at": wiz["at"]}).encode()
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        "Cookie": auth["cookies"],
+        "Origin": FLOW_ORIGIN, "Referer": FLOW_ORIGIN + "/",
+        "X-Same-Domain": "1",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+    }
+    r = urllib.request.Request(f"{BOQ_ENDPOINT}?{qs}", data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(r, timeout=600, context=_SSL) as resp:
+        raw = resp.read().decode("utf-8", errors="replace")
+    return _parse_boq_images(raw)
+
+
+def _parse_boq_images(raw: str) -> list[dict]:
+    """batchexecute 응답 → [{"type":"url","url":…,"media_id":…}]. 형식: )]}' 접두 + (길이/JSON 청크 반복)"""
+    text = raw.lstrip()
+    if text.startswith(")]}'"):
+        text = text[4:]
+    payload = None
+    for m in re.finditer(r'\[\["wrb\.fr".*?\]\][\r\n]', text, re.S):
+        try:
+            for item in json.loads(m.group(0)):
+                if item[0] == "wrb.fr" and item[1] == BOQ_RPC_GENERATE:
+                    if item[2] is None:
+                        raise FlowError(f"생성 RPC 가 빈 응답을 돌려줌 (에러 필드: {json.dumps(item[5:7])[:300]})")
+                    payload = json.loads(item[2])
+        except json.JSONDecodeError:
+            continue
+    if payload is None:
+        raise FlowError(f"batchexecute 응답에서 wrb.fr/{BOQ_RPC_GENERATE} 를 못 찾음: {raw[:300]!r}")
+    out = []
+    try:
+        for media in payload[0]:                         # [0] = 생성된 미디어 목록
+            media_id = media[0]
+            info = media[6][0]
+            url = info[13]                               # 서명된 이미지 URL
+            if isinstance(url, str) and url.startswith("http"):
+                out.append({"type": "url", "url": url, "media_id": media_id})
+    except (IndexError, TypeError, KeyError) as e:
+        raise FlowError(f"응답 구조가 예상과 다름({e}): {json.dumps(payload)[:400]}") from e
+    if not out:
+        raise FlowError(f"응답에 이미지 URL 없음: {json.dumps(payload)[:400]}")
+    return out
 
 
 def _media_uuid(value) -> str | None:
@@ -400,7 +498,7 @@ def _run_on_port(prompt: str, out_path: pathlib.Path, refs: list[pathlib.Path],
             first = images[0]
             buf = None
             tag = f"flow/{model}"
-            if want_upscale in ("2K", "4K") and first.get("media_id"):
+            if want_upscale in ("2K", "4K") and first.get("media_id") and not (isinstance(token, dict) and token.get("wiz")):
                 try:
                     buf = upsample(first["media_id"], want_upscale, token, project_id, port)
                     tag += f"+{want_upscale}"
