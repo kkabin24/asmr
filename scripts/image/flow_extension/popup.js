@@ -96,6 +96,26 @@ async function getTokenFromTab(tabId) {
 }
 
 /**
+ * ★2026-09-18 새 Flow(flow.google.com, boq 앱) 인증 — 구글 계정 쿠키.
+ * 새 앱은 OAuth 토큰을 쓰지 않고 SAPISID 쿠키로 SAPISIDHASH 를 만든다.
+ * 이 프로필의 google.com 쿠키를 모아 데몬에 넘기면, 클라이언트가 요청마다 해시를 계산한다.
+ * 구글 로그인 쿠키 전체가 로컬 데몬(~/.flow-proxy)에 저장된다 — 본인 PC·버너 계정 전제.
+ */
+async function getGoogleCookieBundle() {
+  const all = await chrome.cookies.getAll({ domain: 'google.com' });
+  const byName = {};
+  for (const c of all) {
+    // 같은 이름이 여러 경로/도메인에 있으면 .google.com 루트 것을 우선
+    if (!byName[c.name] || c.domain === '.google.com') byName[c.name] = c;
+  }
+  const sapisid = (byName['SAPISID'] || byName['__Secure-3PAPISID'] || byName['__Secure-1PAPISID'] || {}).value || null;
+  const wanted = Object.values(byName).filter(c =>
+    /^(SID|HSID|SSID|APISID|SAPISID|NID|SIDCC|__Secure-|__Host-)/.test(c.name));
+  const cookies = wanted.map(c => `${c.name}=${c.value}`).join('; ');
+  return { sapisid, cookies, count: wanted.length };
+}
+
+/**
  * Get session cookie for long-lived auto-refresh (~30 days)
  */
 async function getSessionCookie() {
@@ -135,6 +155,25 @@ async function handleConnect() {
   } catch {}
 
   try {
+    // ★2026-09-18 1순위: 구글 쿠키(SAPISID) 인증 — 새 Flow 는 이것만 받는다.
+    const bundle = await getGoogleCookieBundle();
+    if (bundle.sapisid) {
+      const portOk = await fetch(`${proxyUrl()}/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ authMode: 'sapisid', sapisid: bundle.sapisid, cookies: bundle.cookies, authuser: 0 })
+      }).then(async r => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(`데몬이 거절: ${d.error || r.status}`);
+        return d;
+      }, e => { throw new Error(`데몬(포트 ${FLOW_PORT})에 연결 실패 — flow_token_server.py 가 떠 있는지 확인 (${e.message})`); });
+      updateStatus(true, 'Connected');
+      infoEl.textContent = `구글 쿠키 인증 (SAPISID · 쿠키 ${bundle.count}개). reCAPTCHA: auto`;
+      connectBtn.textContent = 'Reconnect';
+      return;
+    }
+
+    // ── 아래는 옛 labs.google OAuth 경로 (SAPISID 를 못 읽었을 때만) ──
     // ★2026-09-06 재수정 — 탭 의존을 없앤다.
     // 종전 경로는 labs.google 탭을 찾아 그 안에서 세션을 fetch 했는데,
     // chrome.tabs.query 는 **같은 프로필의 탭만** 본다. 다른 프로필/창(또는 시크릿)에
@@ -203,15 +242,15 @@ async function init() {
       infoEl.textContent = `레인 포트 ${p} 저장됨. 이 프로필은 이 포트의 데몬에 붙습니다.`;
     });
   }
-  const token = await checkSessionStatus();
-
-  if (token) {
-    updateStatus(true, 'Connected');
-    infoEl.textContent = 'OAuth ✓  |  reCAPTCHA: auto';
-    connectBtn.textContent = 'Reconnect';
+  // ★2026-09-18: 이 표시는 "구글 로그인 감지" 이지 데몬 연결 상태가 아니다. 연결은 Connect 를 눌러야 한다.
+  let bundle = { sapisid: null, count: 0 };
+  try { bundle = await getGoogleCookieBundle(); } catch {}
+  if (bundle.sapisid) {
+    updateStatus(false, `구글 로그인 감지 (쿠키 ${bundle.count}개) — Connect 를 누르세요`);
+    infoEl.textContent = '새 Flow(flow.google.com)는 구글 쿠키로 인증합니다.';
   } else {
-    updateStatus(false, 'Not connected');
-    infoEl.textContent = 'Open labs.google/fx/tools/flow, sign in, then click Connect.';
+    updateStatus(false, '구글 로그인 없음');
+    infoEl.textContent = '이 프로필에서 google.com 에 로그인한 뒤 Connect.';
   }
 
   connectBtn.disabled = false;

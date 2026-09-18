@@ -145,8 +145,15 @@ def refresh_via_cookie(session_cookie: str) -> str | None:
 
 
 def get_valid_token() -> tuple[str | None, str]:
-    """유효한 access token 반환. (token, note). 만료 5분 전이면 cookie 로 자동 리프레시."""
+    """유효한 access token 반환. (token, note). 만료 5분 전이면 cookie 로 자동 리프레시.
+
+    ★2026-09-18 — authMode == "sapisid" 면 access token 이 없다. 이 모드에서는
+    SAPISID 쿠키가 곧 자격이고(요청마다 SAPISIDHASH 로 해시), 만료 개념도 다르다.
+    "sapisid" 문자열을 토큰 자리에 돌려 connected 판정을 통과시키고, 실제 자격은 /token 이 준다.
+    """
     data = read_token()
+    if data.get("authMode") == "sapisid" and data.get("sapisid") and data.get("cookies"):
+        return "sapisid", "sapisid"
     tok = data.get("accessToken")
     exp = data.get("expiresAt", 0)
     if tok and exp > now_ms() + 300_000:
@@ -277,6 +284,11 @@ class Handler(BaseHTTPRequestHandler):
             # flow_client 가 access token + projectId 를 얻는 곳
             tok, note = get_valid_token()
             data = read_token()
+            if tok == "sapisid":
+                self._send(200, {"authMode": "sapisid", "sapisid": data["sapisid"], "cookies": data["cookies"],
+                                 "authuser": data.get("authuser", "0"), "projectId": data.get("projectId"),
+                                 "note": note})
+                return
             if tok:
                 # sessionCookie: 비디오 다운로드(labs.google tRPC redirect)가 쿠키 인증이라 함께 노출(localhost 전용)
                 self._send(200, {"accessToken": tok, "projectId": data.get("projectId"),
@@ -292,6 +304,27 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/auth":
             # 확장이 로그인 토큰+쿠키를 넘김
             body = self._read_json()
+            if body.get("authMode") == "sapisid":
+                # ★2026-09-18 새 Flow(flow.google.com, boq 앱) — OAuth 토큰 없이
+                #   구글 계정 쿠키(SAPISID)로 SAPISIDHASH 인증. 확장이 google.com 쿠키를 넘긴다.
+                sap = body.get("sapisid") or ""
+                cookies = body.get("cookies") or ""
+                n_cookies = cookies.count("=")
+                dlog(f"[auth] sapisid 모드 수신: SAPISID 길이={len(sap)} 쿠키 {n_cookies}개 authuser={body.get('authuser', 0)}")
+                if not sap or n_cookies < 3:
+                    self._send(400, {"error": "google.com 쿠키(SAPISID)를 못 읽음 — 이 프로필에서 구글에 로그인돼 있는지, 확장에 google.com 권한이 있는지 확인"})
+                    return
+                save_token({
+                    "authMode": "sapisid",
+                    "sapisid": sap,
+                    "cookies": cookies,
+                    "authuser": str(body.get("authuser", 0)),
+                    "savedAt": now_ms(),
+                    "projectId": read_token().get("projectId") or body.get("projectId"),
+                })
+                dlog("[auth] ✓ 저장 완료 — Connected (sapisid)")
+                self._send(200, {"ok": True, "message": "Connected (sapisid)"})
+                return
             tok = body.get("accessToken", "")
             dlog(f"[auth] 수신: 토큰 접두={tok[:4]!r} 길이={len(tok)} "
                  f"쿠키={'있음' if body.get('sessionCookie') else '없음'}")

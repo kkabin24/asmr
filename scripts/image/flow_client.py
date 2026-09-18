@@ -80,10 +80,43 @@ _SSL = _ssl_context()
 
 
 
-def _post(url: str, payload: dict, token: str | None = None, timeout: int = 600) -> dict:
-    headers = {"Content-Type": "application/json", "Origin": "https://labs.google"}
+FLOW_ORIGIN = "https://flow.google.com"
+# flow.google.com 페이지의 WIZ_global_data.K21R3e — boq 프론트가 aisandbox-pa 에 붙일 때 쓰는 공개 API 키.
+# 페이지 소스에 그대로 노출된 값이라 비밀이 아니다. 바뀌면 env FLOW_API_KEY 로 덮어쓴다.
+FLOW_API_KEY = os.environ.get("FLOW_API_KEY", "AIzaSyDSjGxWlo68HcGt6mbaIq9YbkKhFQnt3sk")
+
+
+def _sapisidhash(sapisid: str, origin: str = FLOW_ORIGIN) -> str:
+    """Google 내부 API 표준 인증. Authorization: SAPISIDHASH {ts}_{sha1("{ts} {SAPISID} {origin}")}"""
+    ts = int(time.time())
+    digest = hashlib.sha1(f"{ts} {sapisid} {origin}".encode()).hexdigest()
+    return f"SAPISIDHASH {ts}_{digest}"
+
+
+def _auth_headers(token) -> dict:
+    """token 이 str 이면 옛 OAuth Bearer, dict(authMode=sapisid) 면 새 Flow 의 쿠키 인증.
+
+    ★2026-09-18 — Flow 가 flow.google.com(boq 앱)으로 재작성되며 OAuth 토큰을 버렸다.
+    번들에 Bearer/accessToken 이 0회, SAPISIDHASH/X-Goog-AuthUser 가 있다. 이 헤더 묶음이 그 재현이다.
+    """
+    if isinstance(token, dict) and token.get("authMode") == "sapisid":
+        return {
+            "Authorization": _sapisidhash(token["sapisid"]),
+            "Cookie": token["cookies"],
+            "Origin": FLOW_ORIGIN,
+            "Referer": FLOW_ORIGIN + "/",
+            "X-Goog-AuthUser": str(token.get("authuser", "0")),
+            "X-Goog-Api-Key": FLOW_API_KEY,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        }
+    h = {"Origin": "https://labs.google"}
     if token:
-        headers["Authorization"] = f"Bearer {token}"
+        h["Authorization"] = f"Bearer {token}"
+    return h
+
+
+def _post(url: str, payload: dict, token=None, timeout: int = 600) -> dict:
+    headers = {"Content-Type": "application/json", **_auth_headers(token)}
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=timeout, context=_SSL) as resp:
         return json.loads(resp.read())
@@ -102,6 +135,8 @@ def daemon_token(port: int) -> tuple[str, str | None]:
             f"토큰 데몬(:{port})에 연결 실패 — 먼저 실행: "
             f"python3 scripts/image/flow_token_server.py --port {port}"
         ) from e
+    if data.get("authMode") == "sapisid":
+        return data, data.get("projectId")          # dict 자체가 자격 (SAPISIDHASH 계산용)
     return data["accessToken"], data.get("projectId")
 
 
@@ -194,11 +229,12 @@ def upload_ref(path: pathlib.Path, token: str, project_id: str, port: int, use_c
 def batch_generate(prompt: str, image_inputs: list[dict], token: str, project_id: str,
                    recaptcha: str, model: str, ratio: str, seed: int | None) -> list[dict]:
     client_ctx = {
-        "recaptchaContext": {"token": recaptcha, "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"},
         "projectId": project_id,
         "tool": "PINHOLE",
         "sessionId": ";" + str(int(time.time() * 1000)),
     }
+    if recaptcha:   # ★새 Flow(sapisid)에서 reCAPTCHA 를 못 받으면 없이 시도한다
+        client_ctx["recaptchaContext"] = {"token": recaptcha, "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"}
     payload = {
         "clientContext": client_ctx,
         "mediaGenerationContext": {"batchId": _uuid4()},
@@ -351,7 +387,14 @@ def _run_on_port(prompt: str, out_path: pathlib.Path, refs: list[pathlib.Path],
     want_upscale = str(upscale or "").upper()
     for attempt in range(1, max_retries + 1):
         try:
-            recaptcha = daemon_recaptcha(port)
+            try:
+                recaptcha = daemon_recaptcha(port)
+            except FlowError as rc_err:
+                if isinstance(token, dict):   # sapisid 모드: 새 Flow 탭엔 grecaptcha 가 없을 수 있다 → 없이 시도
+                    print(f"reCAPTCHA 없이 시도 ({rc_err})", file=sys.stderr)
+                    recaptcha = None
+                else:
+                    raise
             images = batch_generate(prompt, image_inputs, token, project_id,
                                     recaptcha, model, ratio, seed)
             first = images[0]
@@ -372,7 +415,7 @@ def _run_on_port(prompt: str, out_path: pathlib.Path, refs: list[pathlib.Path],
         except urllib.error.HTTPError as e:
             body = e.read().decode(errors="replace")
             if e.code == 401:
-                print("HTTP 401 — Flow 세션 만료. Chrome 확장에서 Reconnect 후 재시도.", file=sys.stderr)
+                print("HTTP 401 — 인증 거절. 확장에서 Reconnect (구글 로그인 쿠키 갱신) 후 재시도.", file=sys.stderr)
                 return 1
             wait = _retry_wait(e.code)
             if wait is not None and attempt < max_retries:
