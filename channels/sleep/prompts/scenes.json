@@ -1,0 +1,29 @@
+{
+  "_comment": "수면 명상 채널 도입 이미지(=썸네일) 장면. 전부 실사 사진 톤의 '누워 있는 침실'. 장소가 바뀌어도 사람·조명·구도 규칙(_frame.txt)은 고정이다. 벤치마크 K_LEbhHLCbk(따뜻한 호텔 침실) · TRQV5h0XMns(창가 침대·촛불). ★문구는 사람이 얹는다 — 이미지에 글자 없음.",
+  "_anchor": "Set in present-day Korea. Ordinary, tasteful, uncluttered interior.",
+  "scenes": [
+    {"id": "01_hotel_warm", "ko": "따뜻한 호텔 침실",
+     "scene": "A quiet hotel bedroom at night. A wide bed with crisp white sheets and two muted olive pillows against a warm wood headboard. One small warm bedside lamp on the right casts amber light across the pillows. The left wall is plain dark wood panelling in deep shadow."},
+
+    {"id": "02_apartment_rain", "ko": "비 오는 밤 아파트 침실",
+     "scene": "A modern Korean apartment bedroom at night. On the right, rain runs down a large window; far below, blurred city lights melt into soft bokeh. A low bed with grey linen bedding, one small warm lamp on the nightstand. The left wall is a plain dark surface in shadow."},
+
+    {"id": "03_ondol_room", "ko": "시골집 온돌방",
+     "scene": "A simple Korean countryside room at night. A thick cotton mattress and quilt laid directly on the warm paper floor, a folded blanket at the foot. On the right, a paper-screen window glows faintly and a small warm floor lamp sits beside the bedding. The left side of the room is bare dark wall in shadow."},
+
+    {"id": "04_window_predawn", "ko": "새벽 창가 침대",
+     "scene": "A calm bedroom just before dawn. On the right, a tall window with sheer curtains shows a faint pale blue sky. A bed with soft white bedding beneath the window, one small warm lamp still on. The left wall is plain and dark, untouched by the window light."},
+
+    {"id": "05_candle_bedside", "ko": "촛불 켠 침실",
+     "scene": "A dim bedroom at night lit only by a single candle in a glass holder on the right nightstand, its warm flicker touching the edge of white bedding and a wooden headboard. Everything else falls into deep warm shadow. The left half of the room is a dark plain wall."},
+
+    {"id": "06_snow_window", "ko": "눈 내리는 밤 침실",
+     "scene": "A cosy bedroom on a snowing night. On the right, snow drifts past a dark window; inside, a bed with a thick cream duvet and one small warm bedside lamp. The left wall is plain and in deep shadow."},
+
+    {"id": "07_hanok_stay", "ko": "한옥 스테이",
+     "scene": "A modern hanok guesthouse room at night — exposed wooden beams, a low platform bed with white linen, a paper-screen sliding door on the right glowing faintly amber from a small lamp. The left side is a plain dark plaster wall in shadow."},
+
+    {"id": "08_seaside_room", "ko": "바닷가 숙소",
+     "scene": "A small seaside guesthouse room at night. On the right, an open window frames a dark sea with a faint horizon, and a small warm lamp sits on the sill. Bedding is laid on the floor beneath the window. The left wall is bare and dark."}
+  ]
+}

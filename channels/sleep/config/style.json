@@ -1,0 +1,4 @@
+{
+  "_comment": "이 채널은 프롬프트에 자동으로 덧붙이는 화풍 앵커가 없다. generate_image.py 는 여기서 aspect_ratio 만 읽는다. 화풍은 channels/sleep/prompts/_style.txt 가 전부다 (실사 사진). 조선·웹툰·캐릭터 lock 같은 야담 개념은 이 채널에 존재하지 않는다.",
+  "aspect_ratio": "16:9"
+}

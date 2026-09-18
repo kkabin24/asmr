@@ -1,0 +1,40 @@
+{
+  "id": "sleep",
+  "name": "(채널명 미정 — 밤마실 / 베갯머리 후보)",
+  "type": "수면 명상 (바디스캔 나레이션 + 백색소음)",
+  "target": "잠들기 전 침대에 누워 이어폰으로 듣는 시청자",
+  "tone": "낮고 느린 존댓말 안내. 판단 없이 알아차리게 한다. 자극·서사 없음.",
+  "_comment": "★야담(yadam) 설정을 베이스로 만들지 않았다. 조선·웹툰·캐릭터 앵커가 전부 이 채널과 무관하다(2026-09-18 사용자 지시로 갈아엎음). 벤치마크: 에일린 mind yoga K_LEbhHLCbk / TRQV5h0XMns — docs/bodyscan-benchmark.md",
+  "image": {
+    "engine": "flow",
+    "_comment_engine": "flow(무료 웹세션) 전용. gemini 는 쓰지 않는다.",
+    "flow": {
+      "model": "banana",
+      "upscale": "2K",
+      "ratio": "16:9",
+      "ports": [3850],
+      "_comment_ports": "★이 채널 전용 레인 = 3850 하나. 다른 프로젝트(3847~3849)와 섞지 않는다(2026-09-06 사용자 지시). 이 채널 전용 Chrome 프로필에 확장을 로드하고 팝업 포트를 3850 으로."
+    }
+  },
+  "video": {
+    "total_seconds": 7200,
+    "_comment_total": "완성본 2시간 (사용자 지정 2026-09-18)",
+    "opening_image_hold_seconds": 30,
+    "opening_fade_seconds": 180,
+    "_comment_fade": "벤치마크 K_LEbhHLCbk 실측: 시작 14.7% 밝기에서 3분 30초에 걸쳐 선형 페이드아웃 → 이후 전부 검정. 눈을 감게 하는 포맷이라 화면은 도입부 한 장이 전부다.",
+    "opening_brightness": 0.55,
+    "_comment_brightness": "도입 이미지 자체를 이 비율로 어둡게 시작한다(벤치 14.7% 평균 밝기 재현). 1.0 이면 원본 그대로.",
+    "narration_gain_db": 0,
+    "noise_gain_db": -6,
+    "noise_fade_in_seconds": 20,
+    "_comment_noise": "나레이션이 끝나면 백색소음을 20초 페이드인으로 얹어 2시간까지 채운다. 소음은 나레이션보다 6dB 낮게."
+  },
+  "render": {
+    "engine": "ffmpeg",
+    "fps": 30,
+    "width": 1920,
+    "height": 1080,
+    "loudness_lufs": -18,
+    "_comment_loudness": "수면 콘텐츠라 야담(-12.8)보다 훨씬 낮게. 밤에 이어폰으로 듣는 기준."
+  }
+}

@@ -65,7 +65,11 @@ scripts/**/*.prev*.py
 channels/*/assets/intro/_prev/
 
 # ── 썸네일 프롬프트 빌드 산출물 (thumb_prompt.py 로 언제든 재생성) ──
-docs/thumbnail-prompts/_build/
+channels/*/prompts/_build/
 
 # ── 썸네일 이미지 산출물 (재생성 가능) ──
-_thumbs/
+channels/*/projects/_images/
+
+# ── sleep 채널 백색소음 음원 (사용자 보유분, 용량) ──
+channels/sleep/assets/noise/*
+!channels/sleep/assets/noise/README.md
