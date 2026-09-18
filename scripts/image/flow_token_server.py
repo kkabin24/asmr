@@ -21,6 +21,7 @@ Usage:
 import argparse
 import json
 import pathlib
+import ssl
 import sys
 import threading
 import time
@@ -94,6 +95,34 @@ def save_token(data: dict) -> None:
 
 def now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def verify_token(tok: str) -> tuple[bool, str]:
+    """Google tokeninfo 로 access token 이 실제로 살아 있는지 확인.
+
+    ★2026-09-18 신설. Flow 가 flow.google.com 으로 옮겨간 뒤, labs.google 세션 엔드포인트가
+    만료된 ya29 토큰을 그대로 돌려주는 경우가 생겼다. 데몬은 접두(ya29)만 보고 "Connected" 로
+    받아줬고, 생성 단계에서야 401 이 났다. 여기서 걸러 팝업에 바로 이유를 보여준다.
+    네트워크 오류면 (True, 'unverified') — 검증 실패로 막지는 않는다.
+    """
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        ctx = None
+    try:
+        req = urllib.request.Request(f"https://oauth2.googleapis.com/tokeninfo?access_token={tok}")
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as r:
+            info = json.loads(r.read())
+        return True, f"valid (expires_in={info.get('expires_in')}s)"
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read())
+        except Exception:
+            body = {}
+        return False, body.get("error_description") or body.get("error") or f"HTTP {e.code}"
+    except Exception as e:
+        return True, f"unverified ({e.__class__.__name__})"
 
 
 def refresh_via_cookie(session_cookie: str) -> str | None:
@@ -269,6 +298,11 @@ class Handler(BaseHTTPRequestHandler):
             if not tok.startswith("ya29"):
                 dlog("[auth] 거절 — ya29 로 시작하지 않음")
                 self._send(400, {"error": "invalid access token"})
+                return
+            ok, why = verify_token(tok)
+            dlog(f"[auth] Google 검증: {why}")
+            if not ok:
+                self._send(400, {"error": f"토큰이 무효({why}) — labs.google/fx 에 다시 로그인한 뒤 Reconnect"})
                 return
             save_token({
                 "accessToken": tok,
