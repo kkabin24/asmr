@@ -15,6 +15,7 @@
     --noise 를 생략하면 channels/{채널}/assets/noise/ 의 첫 음원을 쓴다.
     --total / --fade 등 수치는 channels/{채널}/config/settings.json video.* 가 기본값.
     --thumb-out 을 주면 썸네일용 1280x720 JPG 도 같이 낸다(원본 밝기, 글자 없음 — 문구는 사람이).
+    --bgm 을 주면 나레이션 밑에 음악을 깐다(0초부터 루프). --bgm-tail 로 나레이션 뒤 얼마나 끌지(-1=끝까지, 벤치 2020 방식).
 
 검정 화면 2시간은 x264 가 거의 0 비트로 압축하므로 파일이 크지 않다.
 """
@@ -39,6 +40,16 @@ def probe_duration(path: pathlib.Path) -> float:
     r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                         "-of", "default=nw=1:nk=1", str(path)], capture_output=True, text=True, check=True)
     return float(r.stdout.strip())
+
+
+def leading_silence(path: pathlib.Path, thresh_db: float = -50.0) -> float:
+    """파일 맨 앞 무음 길이(초). BGM 앞 여백을 잘라 0초부터 바로 들리게 하는 데 쓴다."""
+    r = subprocess.run(["ffmpeg", "-v", "info", "-t", "10", "-i", str(path),
+                        "-af", f"silencedetect=noise={thresh_db}dB:d=0.2", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    import re
+    m = re.search(r"silence_start: (-?[\d.]+).*?silence_end: ([\d.]+)", r.stderr, re.S)
+    return float(m.group(2)) if m and float(m.group(1)) <= 0.05 else 0.0
 
 
 def load_settings(channel: str) -> dict:
@@ -68,6 +79,12 @@ def main():
     ap.add_argument("--brightness", type=float, default=None, help="도입 이미지 밝기 배율(0~1)")
     ap.add_argument("--noise-gain", type=float, default=None, help="소음 dB (나레이션 대비)")
     ap.add_argument("--noise-fade", type=float, default=None, help="소음 페이드인(초)")
+    ap.add_argument("--bgm", type=pathlib.Path, default=None, help="나레이션 밑에 까는 음악 (0초부터 루프)")
+    ap.add_argument("--bgm-gain", type=float, default=None, help="BGM dB (나레이션 대비). 기본 settings video.bgm_gain_db (-14)")
+    ap.add_argument("--bgm-tail", type=float, default=None,
+                    help="나레이션 끝난 뒤 BGM 을 몇 초 더 끌다 페이드아웃할지. -1 이면 끝까지 루프(벤치 2020 방식). 기본 settings video.bgm_tail_seconds (60)")
+    ap.add_argument("--bgm-fade", type=float, default=None, help="BGM 페이드아웃(초). 기본 20")
+    ap.add_argument("--bgm-offset", type=float, default=None, help="BGM 앞을 몇 초 건너뛸지. 기본: 파일 앞 무음을 자동 감지해 잘라냄")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -86,8 +103,12 @@ def main():
     fps = int(r.get("fps", 30)); W = int(r.get("width", 1920)); H = int(r.get("height", 1080))
     lufs = float(r.get("loudness_lufs", -18))
 
+    b_gain = args.bgm_gain if args.bgm_gain is not None else float(v.get("bgm_gain_db", -14))
+    b_tail = args.bgm_tail if args.bgm_tail is not None else float(v.get("bgm_tail_seconds", 60))
+    b_fade = args.bgm_fade if args.bgm_fade is not None else float(v.get("bgm_fade_out_seconds", 20))
+
     noise = args.noise or pick_noise(args.channel)
-    for p in (args.image, args.narration, noise):
+    for p in (args.image, args.narration, noise, *( [args.bgm] if args.bgm else [] )):
         if not p.exists():
             raise SystemExit(f"파일 없음: {p}")
 
@@ -98,6 +119,11 @@ def main():
 
     print(f"나레이션 {narr_len/60:.1f}분 · 소음 {noise.name} 은 {noise_start/60:.1f}분부터 {n_fade:.0f}초 페이드인 · "
           f"화면 {hold:.0f}초 유지 후 {fade:.0f}초 페이드 → 검정 · 완성 {total/60:.0f}분")
+    if args.bgm:
+        bgm_end = total if b_tail < 0 else min(total, narr_len + b_tail)
+        b_off = args.bgm_offset if args.bgm_offset is not None else leading_silence(args.bgm)
+        print(f"BGM {args.bgm.name} {b_gain:+.0f}dB · 앞 {b_off:.2f}초 건너뛰고 0초부터 루프, "
+              f"{bgm_end/60:.1f}분에 끝({b_fade:.0f}초 페이드아웃)" + (" — 끝까지" if b_tail < 0 else ""))
 
     # ── 렌더 전략 ────────────────────────────────────────────
     # 검정 화면이 2시간의 97% 다. 이미지를 21만 프레임 동안 매번 디코드·스케일하면 2.5x 밖에 안 나와
@@ -129,17 +155,27 @@ def main():
     cmd_cat = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                "-f", "concat", "-safe", "0", "-i", concat_list, "-c", "copy", vcat]
 
-    # 소리: [0]=나레이션 그대로, [1]=소음 루프 → 페이드인 → 게인 → 시작 지연 → 합침 → 길이 → 끝 페이드 → 라우드니스
+    # 소리: [0]=나레이션 그대로, [1]=소음 루프 → 페이드인 → 게인 → 시작 지연, [2]=BGM(선택) → 합침 → 길이 → 끝 페이드 → 라우드니스
     af = (f"[0:a]aresample=48000,aformat=channel_layouts=stereo[narr];"
           f"[1:a]aresample=48000,aformat=channel_layouts=stereo,"
           f"afade=t=in:st=0:d={n_fade},volume={n_gain}dB,"
           f"adelay={int(noise_start*1000)}|{int(noise_start*1000)}[noise];"
-          f"[narr][noise]amix=inputs=2:duration=longest:normalize=0,"
-          f"atrim=0:{total},afade=t=out:st={total-15}:d=15,"
-          f"loudnorm=I={lufs}:TP=-1.5:LRA=11[a]")
+          )
+    inputs = ["-i", args.narration, "-stream_loop", "-1", "-i", noise]
+    mix_in = "[narr][noise]"
+    n_mix = 2
+    if args.bgm:                                   # [2]=BGM 루프 → 게인 → bgm_end 에서 페이드아웃 → 자름
+        inputs += ["-stream_loop", "-1", "-i", args.bgm]
+        af += (f"[2:a]atrim=start={b_off},asetpts=PTS-STARTPTS,"
+               f"aresample=48000,aformat=channel_layouts=stereo,volume={b_gain}dB,"
+               f"afade=t=out:st={max(0.0, bgm_end - b_fade)}:d={b_fade},atrim=0:{bgm_end}[bgm];")
+        mix_in += "[bgm]"
+        n_mix = 3
+    af += (f"{mix_in}amix=inputs={n_mix}:duration=longest:normalize=0,"
+           f"atrim=0:{total},afade=t=out:st={total-15}:d=15,"
+           f"loudnorm=I={lufs}:TP=-1.5:LRA=11,aresample=48000[a]")
     cmd_aud = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats",
-               "-i", args.narration, "-stream_loop", "-1", "-i", noise,
-               "-filter_complex", af, "-map", "[a]", "-t", str(total),
+               *inputs, "-filter_complex", af, "-map", "[a]", "-t", str(total),
                "-c:a", "aac", "-b:a", "160k", aud]
     cmd_mux = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                "-i", vcat, "-i", aud, "-map", "0:v", "-map", "1:a",

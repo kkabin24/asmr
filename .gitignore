@@ -76,3 +76,6 @@ channels/sleep/assets/noise/*
 
 # ── 폐기된 회화 썸네일 산출물 자리 (2026-09-18) ──
 _thumbs/
+
+# ── sleep 채널 BGM 음원 (CC BY, README 의 출처에서 재다운로드 가능) ──
+channels/sleep/assets/bgm/*.mp3
